@@ -1,0 +1,163 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# ---- config ----
+ROOT="${1:-./tileserver}"
+STYLE_NAME="basic-osm"
+SOURCE_LAYER_DEFAULT="openmaptiles"   # matches Planetiler's OpenMapTiles schema
+MAX_ZOOM=14
+
+echo "Scaffolding tile-serving layout at: $ROOT"
+
+# ---- directory skeleton ----
+mkdir -p "$ROOT"/{tiles,fonts,sprites,styles/$STYLE_NAME}
+
+# ---- fonts: fetch a base glyph set (Noto Sans covers Latin fine) ----
+# MapLibre needs pre-rendered .pbf glyph ranges, not raw .ttf files.
+# The maplibre/fonts repo ships pre-built ranges ready to serve as-is.
+FONT_DIR="$ROOT/fonts/Noto Sans Regular"
+if [ ! -d "$FONT_DIR" ]; then
+    echo "Fetching pre-built glyph PBFs (Noto Sans Regular)..."
+    mkdir -p "$FONT_DIR"
+    git clone --depth 1 --branch gh-pages https://github.com/openmaptiles/fonts.git "$FONT_DIR/tmp-fonts"
+    cp -r $FONT_DIR/tmp-fonts/"Noto Sans Regular" $FONT_DIR/
+    rm -f "$FONT_DIR/tmp-fonts"
+else
+    echo "Fonts already present, skipping fetch."
+fi
+
+# ---- sprite placeholder (empty sprite, valid but blank) ----
+# A sprite needs 4 files: sprite.png, sprite.json, sprite@2x.png, sprite@2x.json
+SPRITE_DIR="$ROOT/sprites"
+if [ ! -f "$SPRITE_DIR/sprite.json" ]; then
+    echo "{}" > "$SPRITE_DIR/sprite.json"
+    echo "{}" > "$SPRITE_DIR/sprite@2x.json"
+    # 1x1 transparent PNG, valid minimal sprite sheet
+    printf '\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDR\x00\x00\x00\x01\x00\x00\x00\x01\x08\x06\x00\x00\x00\x1f\x15\xc4\x89\x00\x00\x00\nIDATx\x9cc\x00\x01\x00\x00\x05\x00\x01\r\n\x2d\xb4\x00\x00\x00\x00IEND\xaeB`\x82' > "$SPRITE_DIR/sprite.png"
+    cp "$SPRITE_DIR/sprite.png" "$SPRITE_DIR/sprite@2x.png"
+fi
+
+# ---- style.json ----
+cat > "$ROOT/styles/$STYLE_NAME/style.json" <<EOF
+{
+  "version": 8,
+  "name": "$STYLE_NAME",
+  "sources": {
+    "$SOURCE_LAYER_DEFAULT": {
+      "type": "vector",
+      "tiles": ["http://localhost:8080/tiles/{z}/{x}/{y}.pbf"],
+      "minzoom": 0,
+      "maxzoom": $MAX_ZOOM
+    }
+  },
+  "glyphs": "http://localhost:8080/fonts/{fontstack}/{range}.pbf",
+  "sprite": "http://localhost:8080/sprites/sprite",
+  "layers": [
+    {
+      "id": "background",
+      "type": "background",
+      "paint": { "background-color": "#f2efe9" }
+    },
+    {
+      "id": "water",
+      "type": "fill",
+      "source": "$SOURCE_LAYER_DEFAULT",
+      "source-layer": "water",
+      "paint": { "fill-color": "#a0c8f0" }
+    },
+    {
+      "id": "landuse",
+      "type": "fill",
+      "source": "$SOURCE_LAYER_DEFAULT",
+      "source-layer": "landuse",
+      "paint": { "fill-color": "#e8e4d8", "fill-opacity": 0.6 }
+    },
+    {
+      "id": "building",
+      "type": "fill",
+      "source": "$SOURCE_LAYER_DEFAULT",
+      "source-layer": "building",
+      "minzoom": 13,
+      "paint": { "fill-color": "#d9d0c3", "fill-outline-color": "#c8bfae" }
+    },
+    {
+      "id": "transportation",
+      "type": "line",
+      "source": "$SOURCE_LAYER_DEFAULT",
+      "source-layer": "transportation",
+      "paint": {
+        "line-color": "#ffffff",
+        "line-width": ["interpolate", ["linear"], ["zoom"], 8, 0.5, 16, 3]
+      }
+    },
+    {
+      "id": "boundary",
+      "type": "line",
+      "source": "$SOURCE_LAYER_DEFAULT",
+      "source-layer": "boundary",
+      "filter": ["==", ["get", "admin_level"], 2],
+      "paint": { "line-color": "#946ca5", "line-width": 1.5, "line-dasharray": [2, 1] }
+    },
+    {
+      "id": "place-labels",
+      "type": "symbol",
+      "source": "$SOURCE_LAYER_DEFAULT",
+      "source-layer": "place",
+      "layout": {
+        "text-field": ["get", "name"],
+        "text-font": ["Noto Sans Regular"],
+        "text-size": 12
+      },
+      "paint": { "text-color": "#333333", "text-halo-color": "#fff", "text-halo-width": 1 }
+    }
+  ]
+}
+EOF
+
+# ---- nginx config: gzip .pbf, correct content-type, CORS for MapLibre ----
+cat > "$ROOT/nginx.conf" <<'EOF'
+server {
+    listen 8080;
+    root TILESERVER_ROOT;
+
+    # Serve pre-gzipped .pbf tiles with correct headers.
+    # Assumes tiles on disk are already gzip-compressed (Planetiler/Tippecanoe
+    # folder output does this by default). If your tiles are NOT pre-gzipped,
+    # remove gzip_static and use `gzip on;` instead to compress on the fly.
+    location /tiles/ {
+        gzip_static off;          # set to 'on' if tiles/*.pbf.gz sit alongside .pbf
+        add_header Content-Type "application/x-protobuf";
+        add_header Content-Encoding "gzip";  # remove this line if tiles aren't gzipped
+        add_header Access-Control-Allow-Origin *;
+    }
+
+    location /fonts/ {
+        add_header Content-Type "application/x-protobuf";
+        add_header Access-Control-Allow-Origin *;
+    }
+
+    location /sprites/ {
+        add_header Access-Control-Allow-Origin *;
+    }
+
+    location /styles/ {
+        add_header Content-Type "application/json";
+        add_header Access-Control-Allow-Origin *;
+    }
+}
+EOF
+sed -i "s|TILESERVER_ROOT|$(cd "$ROOT" && pwd)|" "$ROOT/nginx.conf"
+
+echo ""
+echo "Done. Layout:"
+find "$ROOT" -maxdepth 2 | sort
+
+echo ""
+echo "Next steps:"
+echo "  1. Build your tiles manually into: $ROOT/tiles/{z}/{x}/{y}.pbf"
+echo "  2. Serve with either:"
+echo "       python3 -m http.server 8080 --directory $ROOT   (quick test, no gzip headers)"
+echo "     or:"
+echo "       nginx -c $(cd "$ROOT" && pwd)/nginx.conf          (correct headers/CORS)"
+echo "  3. Point MapLibre at: http://localhost:8080/styles/$STYLE_NAME/style.json"
+
