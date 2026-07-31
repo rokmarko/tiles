@@ -20,7 +20,7 @@ if [ ! -d "$FONT_DIR" ]; then
     echo "Fetching pre-built glyph PBFs (Noto Sans Regular)..."
     mkdir -p "$FONT_DIR"
     git clone --depth 1 --branch gh-pages https://github.com/openmaptiles/fonts.git "$FONT_DIR/tmp-fonts"
-    cp -r "$FONT_DIR/tmp-fonts/Noto Sans Regular" "$FONT_DIR/"
+    cp -r "$FONT_DIR/tmp-fonts/Klokantech Noto Sans Regular/*" "$FONT_DIR/"
     rm -f "$FONT_DIR/tmp-fonts"
 else
     echo "Fonts already present, skipping fetch."

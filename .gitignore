@@ -1,4 +1,7 @@
 data/
-server/
 planetiler.jar
 *.pbf
+server/sprites/
+server/fonts/
+server/tiles/
+server/nginx.conf
