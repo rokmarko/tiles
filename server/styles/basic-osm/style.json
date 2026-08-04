@@ -2,9 +2,11 @@
   "version": 8,
   "name": "basic-osm-vfr",
   "metadata": {
-    "design:intent": "Low-clutter VFR moving-map base. Muted terrain-ish land tints so magenta/blue airspace, tracks and traffic overlays drawn on top stay dominant. Emphasises the features pilots actually navigate by: water, motorways, railways, built-up areas, aerodromes and peak elevations (in feet).",
+    "design:intent": "Low-clutter VFR moving-map base. Muted terrain-ish land tints plus DEM hillshade so magenta/blue airspace, tracks and traffic overlays drawn on top stay dominant. Emphasises the features pilots actually navigate by: relief, water, motorways, railways, populated areas, aerodromes and peak elevations (in feet).",
     "design:constraints": "Sprite sheet is empty and only 'Noto Sans Regular' is available, so no icon-image and no bold/italic text anywhere. Airfield and peak markers are drawn with circle layers instead of sprites.",
-    "design:overlays": "Reserve magenta (#c026a0-ish), blue (#0050c8) and red for the app's airspace/NOTAM/traffic layers. Nothing in this base map uses saturated magenta or pure blue except the aerodrome markers."
+    "design:overlays": "Reserve magenta (#c026a0-ish) and blue (#0050c8) for the app's airspace/NOTAM/traffic layers. Motorways and primary roads use muted brick red (#93392b/#d4614a), so overlays should prefer magenta/blue or fully saturated red rather than earthy reds.",
+    "design:landuse": "Forest and farmland landcover are intentionally not drawn - under hillshade they muddied the relief and buried the roads. Grass, wetland, rock/sand, ice and parks stay as weak tints; landuse (populated, industrial, military) stays because those are visual ground references.",
+    "design:relief": "The 'relief' raster-dem source is Web-Mercator terrain-RGB (512 px, mapbox encoding, z0-12; z13+ upstream is interpolated z12, so MapLibre overzooms instead). Drives the 'hillshade' layer; add a root-level 'terrain' property against the same source if 3D is ever wanted."
   },
   "center": [14.95271, 46.15018],
   "zoom": 8,
@@ -17,6 +19,14 @@
       "minzoom": 0,
       "maxzoom": 14,
       "attribution": "<a href=\"https://www.openmaptiles.org/\" target=\"_blank\">&copy; OpenMapTiles</a> <a href=\"https://www.openstreetmap.org/copyright\" target=\"_blank\">&copy; OpenStreetMap contributors</a>"
+    },
+    "relief": {
+      "type": "raster-dem",
+      "tiles": ["https://tiles.kanardia.eu/terrain/{z}/{x}/{y}.webp"],
+      "encoding": "mapbox",
+      "tileSize": 512,
+      "maxzoom": 12,
+      "attribution": "<a href=\"https://www.maptiler.com/copyright/\" target=\"_blank\">&copy; MapTiler</a>"
     }
   },
   "glyphs": "https://tiles.kanardia.eu/mvt/fonts/{fontstack}/{range}.pbf",
@@ -29,54 +39,6 @@
     },
 
     {
-      "id": "landcover-farmland",
-      "type": "fill",
-      "source": "openmaptiles",
-      "source-layer": "landcover",
-      "minzoom": 8,
-      "filter": ["==", ["get", "class"], "farmland"],
-      "paint": { "fill-color": "#f3f0e2", "fill-opacity": 0.9 }
-    },
-    {
-      "id": "landcover-grass",
-      "type": "fill",
-      "source": "openmaptiles",
-      "source-layer": "landcover",
-      "minzoom": 7,
-      "filter": ["==", ["get", "class"], "grass"],
-      "paint": { "fill-color": "#e8eeda" }
-    },
-    {
-      "id": "landcover-wood",
-      "type": "fill",
-      "source": "openmaptiles",
-      "source-layer": "landcover",
-      "minzoom": 6,
-      "filter": ["==", ["get", "class"], "wood"],
-      "paint": {
-        "fill-color": "#d9e5c9",
-        "fill-opacity": ["interpolate", ["linear"], ["zoom"], 6, 0.6, 10, 0.95]
-      }
-    },
-    {
-      "id": "landcover-wetland",
-      "type": "fill",
-      "source": "openmaptiles",
-      "source-layer": "landcover",
-      "minzoom": 8,
-      "filter": ["==", ["get", "class"], "wetland"],
-      "paint": { "fill-color": "#dae7e2" }
-    },
-    {
-      "id": "landcover-rock-sand",
-      "type": "fill",
-      "source": "openmaptiles",
-      "source-layer": "landcover",
-      "minzoom": 9,
-      "filter": ["match", ["get", "class"], ["rock", "sand"], true, false],
-      "paint": { "fill-color": "#ece7dd" }
-    },
-    {
       "id": "landcover-ice",
       "type": "fill",
       "source": "openmaptiles",
@@ -84,6 +46,22 @@
       "minzoom": 6,
       "filter": ["==", ["get", "class"], "ice"],
       "paint": { "fill-color": "#f2f8fc" }
+    },
+
+    {
+      "id": "hillshade",
+      "type": "hillshade",
+      "source": "relief",
+      "paint": {
+        "hillshade-exaggeration": [
+          "interpolate", ["linear"], ["zoom"], 4, 0.55, 10, 0.38, 13, 0.28
+        ],
+        "hillshade-illumination-direction": 335,
+        "hillshade-illumination-anchor": "viewport",
+        "hillshade-shadow-color": "rgba(92, 82, 66, 0.38)",
+        "hillshade-highlight-color": "rgba(255, 253, 244, 0.3)",
+        "hillshade-accent-color": "rgba(126, 110, 88, 0.22)"
+      }
     },
 
     {
@@ -319,8 +297,8 @@
       "filter": ["==", ["get", "class"], "primary"],
       "layout": { "line-cap": "round", "line-join": "round" },
       "paint": {
-        "line-color": "#a89b83",
-        "line-width": ["interpolate", ["linear"], ["zoom"], 7, 1.4, 11, 3, 16, 9]
+        "line-color": "#a8523c",
+        "line-width": ["interpolate", ["linear"], ["zoom"], 7, 1.2, 11, 2.6, 16, 7.6]
       }
     },
     {
@@ -332,8 +310,8 @@
       "filter": ["==", ["get", "class"], "primary"],
       "layout": { "line-cap": "round", "line-join": "round" },
       "paint": {
-        "line-color": "#fdf3dd",
-        "line-width": ["interpolate", ["linear"], ["zoom"], 7, 0.6, 11, 1.8, 16, 6.5]
+        "line-color": "#e89681",
+        "line-width": ["interpolate", ["linear"], ["zoom"], 7, 0.55, 11, 1.6, 16, 5.6]
       }
     },
     {
@@ -345,8 +323,8 @@
       "filter": ["match", ["get", "class"], ["motorway", "trunk"], true, false],
       "layout": { "line-cap": "round", "line-join": "round" },
       "paint": {
-        "line-color": "#b9762d",
-        "line-width": ["interpolate", ["linear"], ["zoom"], 5, 1.6, 10, 4, 16, 11]
+        "line-color": "#93392b",
+        "line-width": ["interpolate", ["linear"], ["zoom"], 5, 1.1, 10, 2.7, 16, 7.4]
       }
     },
     {
@@ -358,8 +336,8 @@
       "filter": ["match", ["get", "class"], ["motorway", "trunk"], true, false],
       "layout": { "line-cap": "round", "line-join": "round" },
       "paint": {
-        "line-color": "#f0ab52",
-        "line-width": ["interpolate", ["linear"], ["zoom"], 5, 0.8, 10, 2.4, 16, 8]
+        "line-color": "#d4614a",
+        "line-width": ["interpolate", ["linear"], ["zoom"], 5, 0.5, 10, 1.5, 16, 4.6]
       }
     },
     {
@@ -675,7 +653,7 @@
       },
       "paint": {
         "text-color": "#ffffff",
-        "text-halo-color": "#b9762d",
+        "text-halo-color": "#93392b",
         "text-halo-width": 2.2
       }
     },
